@@ -8,7 +8,7 @@ from careerpilot_ai.app.workflow import CareerPilotWorkflow
 
 @pytest.fixture
 def workflow() -> CareerPilotWorkflow:
-    return CareerPilotWorkflow()
+    return CareerPilotWorkflow(enable_llm=False)
 
 
 def test_genai_job_is_high_match(workflow: CareerPilotWorkflow) -> None:
@@ -199,3 +199,59 @@ def test_custom_question_and_character_limit(workflow: CareerPilotWorkflow) -> N
     assert package.answer.answer.startswith("The project that best demonstrates")
     assert len(package.answer.answer) <= 180
     assert len(package.review.revised_output) <= 180
+
+
+class FakeLLMClient:
+    configured = True
+
+    def structured_completion(self, system: str, prompt: str, output_model):
+        return output_model(
+            application_answer="LLM application answer grounded in the supplied candidate evidence.",
+            reviewer_status="Approved",
+            reviewer_issues=[],
+            reviewer_suggestions=[],
+            improvements_made=["Improved specificity and natural wording."],
+            why_stronger="It connects verified project evidence directly to the role.",
+            revised_output="LLM revised answer grounded in verified project evidence for this company.",
+            recruiter_message="Hi, I am interested in this role.\nMy verified project experience aligns well.\nThank you for reviewing my profile.",
+            follow_up_message="Hi, I am following up on my application and remain interested in the opportunity.",
+            tailored_cv_summary="Applied AI engineer with verified backend, API, and user-facing AI product experience.",
+        )
+
+
+class FailingLLMClient:
+    configured = True
+
+    def structured_completion(self, system: str, prompt: str, output_model):
+        raise RuntimeError("provider unavailable")
+
+
+def _llm_test_job() -> JobInput:
+    return JobInput(
+        company_name="Example AI",
+        role_title="AI Backend Engineer",
+        description=(
+            "Example AI needs an AI Backend Engineer to build Python and FastAPI services, REST APIs, "
+            "LLM integrations, database workflows, deployment tooling, and reliable user-facing products."
+        ),
+    )
+
+
+def test_llm_writing_enhances_prose_without_changing_score() -> None:
+    deterministic = CareerPilotWorkflow(enable_llm=False).run(_llm_test_job())
+    enhanced = CareerPilotWorkflow(llm_client=FakeLLMClient()).run(_llm_test_job())
+
+    assert enhanced.writing_mode == "LLM"
+    assert enhanced.writing_warning == ""
+    assert enhanced.fit == deterministic.fit
+    assert enhanced.review.revised_output.startswith("LLM revised answer")
+    assert enhanced.outreach.recruiter_message.startswith("Hi, I am interested")
+    assert enhanced.cv_suggestions.tailored_summary.startswith("Applied AI engineer")
+
+
+def test_llm_failure_uses_deterministic_fallback() -> None:
+    package = CareerPilotWorkflow(llm_client=FailingLLMClient()).run(_llm_test_job())
+
+    assert package.writing_mode == "Deterministic"
+    assert "provider unavailable" in package.writing_warning
+    assert "My strongest evidence" in package.review.revised_output

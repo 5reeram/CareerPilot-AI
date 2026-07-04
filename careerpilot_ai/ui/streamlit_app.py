@@ -13,6 +13,7 @@ import streamlit as st
 from careerpilot_ai.app.db import SessionLocal, init_db
 from careerpilot_ai.app.schemas import JobInput, TrackerCreate, TrackerStatus, TrackerUpdate
 from careerpilot_ai.app.services.excel import ExcelService
+from careerpilot_ai.app.services.llm_client import LLMClient
 from careerpilot_ai.app.services.tracker import DuplicateApplicationError, TrackerService
 from careerpilot_ai.app.workflow import CareerPilotWorkflow
 
@@ -21,6 +22,7 @@ st.set_page_config(page_title="CareerPilot AI", page_icon="🧭", layout="wide")
 init_db()
 workflow = CareerPilotWorkflow()
 tracker = TrackerService()
+llm_client = LLMClient()
 
 
 def bullet_list(items: list[str], empty_message: str = "None detected") -> None:
@@ -107,6 +109,11 @@ def save_analysis(package, final_answer: str, recruiter_message: str,
 
 st.title("🧭 CareerPilot AI")
 st.caption("Paste JD → analyze fit → prepare application → review → track")
+st.sidebar.header("Settings")
+if llm_client.configured:
+    st.sidebar.success(f"LLM mode: Enabled\n\nModel: {llm_client.settings.llm_model}")
+else:
+    st.sidebar.info("LLM mode: Disabled\n\nUsing deterministic writing fallback.")
 
 message = st.session_state.pop("action_message", None)
 if message:
@@ -160,6 +167,10 @@ with analyze_tab:
         fit, job = package.fit, package.job
         cv = getattr(package, "cv_suggestions", None)
         outreach = getattr(package, "outreach", None)
+        st.sidebar.caption(f"Last writing run: {getattr(package, 'writing_mode', 'Deterministic')}")
+        writing_warning = getattr(package, "writing_warning", "")
+        if writing_warning:
+            st.warning(writing_warning)
         st.divider()
 
         top = st.columns(5)

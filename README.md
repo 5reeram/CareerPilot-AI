@@ -13,9 +13,11 @@ a persistent application record. It deliberately does **not** submit application
 5. Save a draft, explicitly mark a manually submitted application, or skip the job.
 6. Filter the SQLite tracker and export a five-sheet Excel workbook with analytics.
 
-The deterministic workflow works without an API key. An OpenAI-compatible client is
-included as a safe extension point for OpenAI or OpenRouter, configured only through
-environment variables.
+The deterministic workflow works without an API key. When `LLM_API_KEY` is configured,
+one validated OpenAI-compatible writing pass improves the application answer, reviewer
+feedback, CV summary, recruiter message, and follow-up message. Parsing and fit scoring
+remain deterministic. Provider errors or invalid structured output automatically fall
+back to the deterministic package.
 
 ## Run locally
 
@@ -28,6 +30,10 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 python -m streamlit run careerpilot_ai/ui/streamlit_app.py
 ```
+
+To enable optional LLM writing, set `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` in
+your local `.env`. The sidebar reports whether LLM mode is enabled without displaying
+the key.
 
 The UI opens at `http://localhost:8501`. SQLite creates `careerpilot.db` in the project
 root on first run.

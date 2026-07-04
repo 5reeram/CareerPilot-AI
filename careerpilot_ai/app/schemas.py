@@ -123,6 +123,8 @@ class AnalysisPackage(BaseModel):
     review: ReviewResult
     cv_suggestions: CVSuggestions = Field(default_factory=CVSuggestions)
     outreach: OutreachMessages = Field(default_factory=OutreachMessages)
+    writing_mode: str = "Deterministic"
+    writing_warning: str = ""
 
 
 class TrackerCreate(BaseModel):
