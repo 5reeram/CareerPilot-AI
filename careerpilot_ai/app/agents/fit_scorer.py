@@ -55,7 +55,8 @@ class FitScoringAgent:
         ownership_role = job.seniority_level in {"Founding/Lead", "Senior"} or any(
             term in job.role_title.casefold() for term in ("founding", "lead", "principal", "head")
         )
-        critical_gaps = [skill for skill in missing if skill in CRITICAL_OWNERSHIP_SKILLS]
+        critical_set = {skill.casefold() for skill in CRITICAL_OWNERSHIP_SKILLS}
+        critical_gaps = [skill for skill in missing if skill.casefold() in critical_set]
         if ownership_role:
             if len(critical_gaps) >= 5:
                 experience_score = min(experience_score, 40)
@@ -115,6 +116,7 @@ class FitScoringAgent:
                 if ownership_role and critical_gaps else ""
             )
             + ("Salary is unknown and scored neutrally." if job.salary_range == "Not specified" else "")
+            + f" Recommendation: {recommendation.value}."
         )
         positioning = (
             f"Lead with {project_phrase}; connect its delivered outcomes to "

@@ -1,5 +1,7 @@
 import pytest
 
+from careerpilot_ai.app.agents.fit_scorer import FitScoringAgent
+from careerpilot_ai.app.profile import SHASHI_PROFILE
 from careerpilot_ai.app.schemas import JobInput, Recommendation
 from careerpilot_ai.app.workflow import CareerPilotWorkflow
 
@@ -141,6 +143,8 @@ def test_vitarc_founding_backend_is_a_neutral_salary_stretch(workflow: CareerPil
     assert package.fit.recommendation == Recommendation.STRETCH
     assert package.fit.salary_match == 50
     assert 35 <= package.fit.experience_match <= 45
+    assert "ownership" in package.fit.reasoning.casefold()
+    assert "stretch apply" in package.fit.reasoning.casefold()
     assert "Salary not mentioned. Verify before serious commitment." in package.fit.risks
     assert any("Ghostverse" in match for match in package.fit.strong_matches)
     assert any("CareerPilot" in match for match in package.fit.strong_matches)
@@ -150,3 +154,10 @@ def test_vitarc_founding_backend_is_a_neutral_salary_stretch(workflow: CareerPil
         "Clinical Evaluation Harnesses", "Regulated Data Systems",
     ):
         assert missing in package.fit.missing_skills
+
+    case_variant_job = package.job.model_copy(update={
+        "required_skills": [skill.swapcase() for skill in package.job.required_skills],
+    })
+    case_variant_fit = FitScoringAgent().score(case_variant_job, SHASHI_PROFILE)
+    assert 35 <= case_variant_fit.experience_match <= 45
+    assert case_variant_fit.recommendation == Recommendation.STRETCH
