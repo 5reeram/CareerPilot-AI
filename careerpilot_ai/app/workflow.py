@@ -17,11 +17,20 @@ class CareerPilotWorkflow:
         self.cv_tailor = CVTailoringAgent()
         self.outreach = OutreachAgent()
 
-    def run(self, job_input: JobInput, question: str = "What interests you about working for this company?") -> AnalysisPackage:
+    def run(
+        self,
+        job_input: JobInput,
+        question: str = "What interests you about working for this company?",
+        character_limit: int | None = None,
+    ) -> AnalysisPackage:
         job = self.parser.parse(job_input)
         fit = self.scorer.score(job, SHASHI_PROFILE)
-        answer = self.writer.generate(job, fit, SHASHI_PROFILE, question)
-        review = self.reviewer.review(answer.answer, job, fit)
+        answer = self.writer.generate(
+            job, fit, SHASHI_PROFILE, question, character_limit=character_limit,
+        )
+        review = self.reviewer.review(
+            answer.answer, job, fit, character_limit=character_limit,
+        )
         cv_suggestions = self.cv_tailor.generate(job, fit, SHASHI_PROFILE)
         outreach = self.outreach.generate(job, fit)
         return AnalysisPackage(

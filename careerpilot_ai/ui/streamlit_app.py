@@ -13,7 +13,7 @@ import streamlit as st
 from careerpilot_ai.app.db import SessionLocal, init_db
 from careerpilot_ai.app.schemas import JobInput, TrackerCreate, TrackerStatus, TrackerUpdate
 from careerpilot_ai.app.services.excel import ExcelService
-from careerpilot_ai.app.services.tracker import TrackerService
+from careerpilot_ai.app.services.tracker import DuplicateApplicationError, TrackerService
 from careerpilot_ai.app.workflow import CareerPilotWorkflow
 
 
@@ -84,11 +84,25 @@ def save_analysis(package, final_answer: str, recruiter_message: str,
             ))
             if updated:
                 return updated.id
-        saved = tracker.add(session, tracker_payload(
+        payload = tracker_payload(
             package, final_answer, recruiter_message, follow_up_message,
             follow_up_date, status,
-        ))
-        return saved.id
+        )
+        try:
+            saved = tracker.add(session, payload)
+            st.session_state.duplicate_detected = False
+            return saved.id
+        except DuplicateApplicationError as exc:
+            tracker.update(session, exc.record_id, TrackerUpdate(
+                status=status,
+                application_answer=final_answer,
+                recruiter_message=recruiter_message,
+                follow_up_message=follow_up_message,
+                follow_up_date=follow_up_date,
+                date_applied=date.today() if status == TrackerStatus.APPLIED else None,
+            ))
+            st.session_state.duplicate_detected = True
+            return exc.record_id
 
 
 st.title("🧭 CareerPilot AI")
@@ -111,19 +125,31 @@ with analyze_tab:
             "Platform skill tags (optional, comma-separated)",
             help="Paste Wellfound skill tags here; they are merged with skills inferred from the full JD.",
         )
+        application_question = st.text_input(
+            "Application question",
+            value="What interests you about working for this company?",
+        )
+        character_limit = st.number_input(
+            "Answer character limit (optional; 0 means no limit)",
+            min_value=0, max_value=10_000, value=0, step=50,
+        )
         description = st.text_area("Paste job description", height=280)
         submitted = st.form_submit_button("Analyze and prepare", type="primary")
 
     if submitted:
         try:
-            st.session_state.package = workflow.run(JobInput(
-                description=description,
-                company_name=company,
-                role_title=role,
-                portal=portal,
-                job_link=job_link,
-                platform_skills=[tag.strip() for tag in platform_tags.split(",") if tag.strip()],
-            ))
+            st.session_state.package = workflow.run(
+                JobInput(
+                    description=description,
+                    company_name=company,
+                    role_title=role,
+                    portal=portal,
+                    job_link=job_link,
+                    platform_skills=[tag.strip() for tag in platform_tags.split(",") if tag.strip()],
+                ),
+                question=application_question.strip() or "Why are you a good fit for this role?",
+                character_limit=int(character_limit) or None,
+            )
             st.session_state.job_meta = {"portal": portal, "job_link": job_link}
             st.session_state.saved_record_id = None
         except ValueError as exc:
@@ -204,6 +230,8 @@ with analyze_tab:
             else:
                 st.markdown(f"**Suggested headline:** {cv.suggested_headline}")
                 st.markdown(f"**Tailored summary:** {cv.tailored_summary}")
+                with st.expander("Copy tailored CV summary"):
+                    st.code(cv.tailored_summary, language=None)
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Skills to move up**")
@@ -226,6 +254,9 @@ with analyze_tab:
             height=260,
             key=f"answer_{hash(initial_answer)}",
         )
+        st.caption(f"{len(final_answer)} characters")
+        with st.expander("Copy application answer"):
+            st.code(final_answer, language=None)
 
         with st.expander("8. Reviewer feedback", expanded=True):
             review = package.review
@@ -248,10 +279,14 @@ with analyze_tab:
             "LinkedIn recruiter message", value=recruiter_default, height=150,
             key=f"recruiter_{hash(recruiter_default)}",
         )
+        with st.expander("Copy recruiter message"):
+            st.code(recruiter_message, language=None)
         follow_up_message = st.text_area(
             "Follow-up message (send after 5–7 days)", value=follow_up_default, height=130,
             key=f"followup_{hash(follow_up_default)}",
         )
+        with st.expander("Copy follow-up message"):
+            st.code(follow_up_message, language=None)
 
         st.subheader("10. Tracker actions")
         follow_up_date = st.date_input("Planned follow-up date", value=date.today() + timedelta(days=7))
@@ -264,7 +299,11 @@ with analyze_tab:
                 follow_up_date, TrackerStatus.READY,
             )
             st.session_state.saved_record_id = record_id
-            st.session_state.action_message = f"Application #{record_id} saved as Ready to Apply."
+            st.session_state.action_message = (
+                f"Existing application #{record_id} updated as Ready to Apply."
+                if st.session_state.pop("duplicate_detected", False)
+                else f"Application #{record_id} saved as Ready to Apply."
+            )
             st.rerun()
 
         if action_columns[1].button("Mark as Applied", disabled=not approved):
@@ -273,7 +312,11 @@ with analyze_tab:
                 follow_up_date, TrackerStatus.APPLIED,
             )
             st.session_state.saved_record_id = record_id
-            st.session_state.action_message = f"Application #{record_id} marked Applied by your explicit action."
+            st.session_state.action_message = (
+                f"Existing application #{record_id} updated and marked Applied."
+                if st.session_state.pop("duplicate_detected", False)
+                else f"Application #{record_id} marked Applied by your explicit action."
+            )
             st.rerun()
 
         if action_columns[2].button("Skip Job"):
@@ -282,7 +325,11 @@ with analyze_tab:
                 follow_up_date, TrackerStatus.SKIPPED,
             )
             st.session_state.saved_record_id = record_id
-            st.session_state.action_message = f"Application #{record_id} marked Skipped."
+            st.session_state.action_message = (
+                f"Existing application #{record_id} updated and marked Skipped."
+                if st.session_state.pop("duplicate_detected", False)
+                else f"Application #{record_id} marked Skipped."
+            )
             st.rerun()
 
         with SessionLocal() as session:
@@ -302,10 +349,12 @@ with tracker_tab:
     applied = sum(record.date_applied is not None for record in records)
     interviews = sum(record.status.value.startswith("Interview") for record in records)
     offers = sum(record.status == TrackerStatus.OFFER for record in records)
-    columns = st.columns(4)
+    due_records = tracker.follow_ups_due(records)
+    due_ids = {record.id for record in due_records}
+    columns = st.columns(5)
     for column, label, value in zip(
-        columns, ("Found", "Applied", "Interviews", "Offers"),
-        (found, applied, interviews, offers),
+        columns, ("Found", "Applied", "Interviews", "Offers", "Follow-ups due"),
+        (found, applied, interviews, offers, len(due_records)),
     ):
         column.metric(label, value)
 
@@ -317,9 +366,10 @@ with tracker_tab:
             "Recommendation", sorted({r.recommendation.value for r in records})
         )
         portal_filter = f3.multiselect("Portal", sorted({r.portal for r in records}))
-        f4, f5 = st.columns(2)
+        f4, f5, f6 = st.columns(3)
         company_filter = f4.text_input("Company contains", key="tracker_company_filter")
         role_filter = f5.text_input("Role contains", key="tracker_role_filter")
+        follow_up_due_only = f6.checkbox("Follow-ups due only")
 
         filtered = [
             record for record in records
@@ -328,6 +378,7 @@ with tracker_tab:
             and (not portal_filter or record.portal in portal_filter)
             and (not company_filter or company_filter.casefold() in record.company.casefold())
             and (not role_filter or role_filter.casefold() in record.role.casefold())
+            and (not follow_up_due_only or record.id in due_ids)
         ]
         rows = [{
             "ID": r.id,

@@ -8,7 +8,7 @@ from careerpilot_ai.app.schemas import (
     AnalysisPackage, CandidateProfile, JobInput, TrackerCreate, TrackerRecord, TrackerUpdate,
 )
 from careerpilot_ai.app.services.excel import ExcelService
-from careerpilot_ai.app.services.tracker import TrackerService
+from careerpilot_ai.app.services.tracker import DuplicateApplicationError, TrackerService
 from careerpilot_ai.app.workflow import CareerPilotWorkflow
 
 app = FastAPI(title=get_settings().app_name, version="0.1.0")
@@ -38,7 +38,10 @@ def analyze_job(job_input: JobInput) -> AnalysisPackage:
 
 @app.post("/tracker/add", response_model=TrackerRecord, status_code=201)
 def add_tracker(data: TrackerCreate, session: Session = Depends(get_session)) -> TrackerRecord:
-    return tracker.add(session, data)
+    try:
+        return tracker.add(session, data)
+    except DuplicateApplicationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/tracker/list", response_model=list[TrackerRecord])
@@ -62,4 +65,3 @@ def export_tracker(session: Session = Depends(get_session)) -> Response:
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=careerpilot_tracker.xlsx"},
     )
-

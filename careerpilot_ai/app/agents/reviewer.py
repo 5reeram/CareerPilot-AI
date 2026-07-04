@@ -1,12 +1,16 @@
 import re
 
+from careerpilot_ai.app.agents.answer_writer import ApplicationAnswerAgent
 from careerpilot_ai.app.schemas import FitScore, ParsedJob, ReviewResult
 
 
 class ReviewerAgent:
     """A deterministic critic that both flags and repairs common application-answer failures."""
 
-    def review(self, answer: str, job: ParsedJob, fit: FitScore) -> ReviewResult:
+    def review(
+        self, answer: str, job: ParsedJob, fit: FitScore,
+        character_limit: int | None = None,
+    ) -> ReviewResult:
         issues: list[str] = []
         suggestions: list[str] = []
         improvements: list[str] = []
@@ -70,6 +74,14 @@ class ReviewerAgent:
             for term in ai_phrases:
                 revised = re.sub(re.escape(term), "work with", revised, flags=re.IGNORECASE)
             improvements.append("Replaced generic AI-sounding language with direct wording.")
+
+        if character_limit and len(revised) > character_limit:
+            issues.append(f"The answer exceeds the {character_limit}-character application limit.")
+            suggestions.append("Keep the strongest evidence while respecting the application limit.")
+            revised = ApplicationAnswerAgent._fit_character_limit(
+                revised, revised, character_limit,
+            )
+            improvements.append(f"Reduced the final answer to {character_limit} characters or fewer.")
 
         if not improvements:
             improvements.append("Preserved the draft because it already used company context, project evidence, and supported skills.")

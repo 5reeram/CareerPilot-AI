@@ -178,3 +178,24 @@ def test_business_gtv_is_not_parsed_as_salary(workflow: CareerPilotWorkflow) -> 
     assert package.job.salary_range == "Not specified"
     assert package.fit.salary_match == 50
     assert "Salary not mentioned. Verify before serious commitment." in package.fit.risks
+
+
+def test_custom_question_and_character_limit(workflow: CareerPilotWorkflow) -> None:
+    question = "Describe the project that best demonstrates your backend experience."
+    package = workflow.run(
+        JobInput(
+            company_name="Example AI",
+            role_title="AI Backend Engineer",
+            description=(
+                "Example AI needs an AI Backend Engineer to build Python and FastAPI services, REST APIs, "
+                "LLM integrations, database workflows, deployment tooling, and reliable user-facing products."
+            ),
+        ),
+        question=question,
+        character_limit=180,
+    )
+
+    assert package.answer.question == question
+    assert package.answer.answer.startswith("The project that best demonstrates")
+    assert len(package.answer.answer) <= 180
+    assert len(package.review.revised_output) <= 180

@@ -7,6 +7,12 @@ from careerpilot_ai.app.db import ApplicationRecord
 from careerpilot_ai.app.schemas import TrackerCreate, TrackerRecord, TrackerStatus, TrackerUpdate
 
 
+class DuplicateApplicationError(ValueError):
+    def __init__(self, record_id: int) -> None:
+        self.record_id = record_id
+        super().__init__(f"Application already exists as record #{record_id}.")
+
+
 def _to_schema(record: ApplicationRecord) -> TrackerRecord:
     return TrackerRecord(
         id=record.id,
@@ -46,6 +52,9 @@ def _to_schema(record: ApplicationRecord) -> TrackerRecord:
 
 class TrackerService:
     def add(self, session: Session, data: TrackerCreate) -> TrackerRecord:
+        duplicate = self.find_duplicate(session, data)
+        if duplicate:
+            raise DuplicateApplicationError(duplicate.id)
         list_fields = {"strong_matches", "missing_skills", "best_projects"}
         values = data.model_dump(exclude=list_fields)
         values["recommendation"] = data.recommendation.value
@@ -60,6 +69,47 @@ class TrackerService:
         session.commit()
         session.refresh(record)
         return _to_schema(record)
+
+    def find_duplicate(self, session: Session, data: TrackerCreate) -> TrackerRecord | None:
+        target = (
+            self._normalize_text(data.company),
+            self._normalize_text(data.role),
+            self._normalize_link(data.job_link),
+        )
+        records = session.scalars(select(ApplicationRecord)).all()
+        for record in records:
+            candidate = (
+                self._normalize_text(record.company),
+                self._normalize_text(record.role),
+                self._normalize_link(record.job_link),
+            )
+            if candidate == target:
+                return _to_schema(record)
+        return None
+
+    @staticmethod
+    def follow_ups_due(
+        records: list[TrackerRecord], as_of: date | None = None,
+    ) -> list[TrackerRecord]:
+        due_date = as_of or date.today()
+        terminal = {
+            TrackerStatus.OFFER, TrackerStatus.REJECTED,
+            TrackerStatus.WITHDRAWN, TrackerStatus.SKIPPED,
+        }
+        return [
+            record for record in records
+            if record.follow_up_date is not None
+            and record.follow_up_date <= due_date
+            and record.status not in terminal
+        ]
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return " ".join(value.casefold().split())
+
+    @staticmethod
+    def _normalize_link(value: str) -> str:
+        return value.strip().rstrip("/")
 
     def list(self, session: Session) -> list[TrackerRecord]:
         records = session.scalars(select(ApplicationRecord).order_by(ApplicationRecord.id.desc())).all()
