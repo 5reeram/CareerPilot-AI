@@ -153,11 +153,27 @@ class JobParserAgent:
 
     @staticmethod
     def _extract_salary(text: str) -> str:
-        match = re.search(
-            r"(?i)(?:₹|\$|€|£|INR|USD)\s?[\d,.]+(?:\s*[-–]\s*(?:₹|\$|€|£|INR|USD)?\s?[\d,.]+)?(?:\s*(?:LPA|lakhs?|k|per annum|/year))?",
-            text,
+        money_pattern = re.compile(
+            r"(?i)(?:₹|\$|€|£|INR|USD)\s?[\d,.]+\+?"
+            r"(?:\s*[-–]\s*(?:₹|\$|€|£|INR|USD)?\s?[\d,.]+\+?)?"
+            r"(?:\s*(?:LPA|lakhs?|k|per month|monthly|per annum|annually|/year))?"
         )
-        return match.group(0) if match else "Not specified"
+        salary_terms = (
+            "salary", "compensation", "ctc", "package", "pay", "stipend", "remuneration",
+            "per month", "monthly", "per annum", "annually", "lpa", "lakhs", "lakh", "inr", "₹",
+        )
+        business_terms = (
+            "gtv", "gmv", "arr", "revenue", "funding", "valuation", "market", "billion",
+            "million users", "transaction volume", "business areas",
+        )
+
+        for match in money_pattern.finditer(text):
+            context = text[max(0, match.start() - 80):min(len(text), match.end() + 80)].casefold()
+            if any(term in context for term in business_terms):
+                continue
+            if any(term in context for term in salary_terms):
+                return match.group(0).strip()
+        return "Not specified"
 
     @staticmethod
     def _section(text: str, headings: tuple[str, ...]) -> str:

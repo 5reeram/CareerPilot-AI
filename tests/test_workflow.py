@@ -161,3 +161,20 @@ def test_vitarc_founding_backend_is_a_neutral_salary_stretch(workflow: CareerPil
     case_variant_fit = FitScoringAgent().score(case_variant_job, SHASHI_PROFILE)
     assert 35 <= case_variant_fit.experience_match <= 45
     assert case_variant_fit.recommendation == Recommendation.STRETCH
+
+
+def test_business_gtv_is_not_parsed_as_salary(workflow: CareerPilotWorkflow) -> None:
+    package = workflow.run(JobInput(
+        company_name="Vitarc",
+        role_title="Founding AI Backend Engineer",
+        description=(
+            "Vitarc operates across more than $10+ Billion GTV in its business areas and is hiring a founding "
+            "AI backend engineer. The role owns FastAPI services, LLM workflows, backend architecture, cloud "
+            "infrastructure, event-driven systems, observability, privacy, and healthcare-grade reliability. "
+            "No candidate compensation information is provided in this job description."
+        ),
+    ))
+
+    assert package.job.salary_range == "Not specified"
+    assert package.fit.salary_match == 50
+    assert "Salary not mentioned. Verify before serious commitment." in package.fit.risks
